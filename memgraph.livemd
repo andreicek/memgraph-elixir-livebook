@@ -1,0 +1,85 @@
+# Memgraph and Elixir
+
+```elixir
+Mix.install([
+  {:bolt_sips, "~> 2.0"},
+  {:kino, "~> 0.9.4"}
+])
+
+{:ok, _memgraph} = Bolt.Sips.start_link(url: "bolt://memgraph:memgraph@localhost:7687")
+conn = Bolt.Sips.conn()
+```
+
+## Trip calculator
+
+<!-- livebook:{"reevaluate_automatically":true} -->
+
+```elixir
+city_from = Kino.Input.text("City from")
+```
+
+<!-- livebook:{"reevaluate_automatically":true} -->
+
+```elixir
+city_to = Kino.Input.text("City to")
+```
+
+<!-- livebook:{"reevaluate_automatically":true} -->
+
+```elixir
+city_from = Kino.Input.read(city_from)
+city_to = Kino.Input.read(city_to)
+
+query = """
+MATCH path = (:City { name: "#{city_from}" })
+             -[:Road * bfs (e, v | e.length <= 150)]->
+             (:City { name: "#{city_to}" })
+RETURN path;
+"""
+```
+
+<!-- livebook:{"reevaluate_automatically":true} -->
+
+```elixir
+path =
+  conn
+  |> Bolt.Sips.query!(query)
+  |> Map.get(:records)
+  |> List.flatten()
+  |> Enum.at(0)
+```
+
+<!-- livebook:{"reevaluate_automatically":true} -->
+
+```elixir
+get_name = fn node -> node |> Map.get(:properties) |> Map.get("name") end
+
+steps = Enum.map(path.nodes, &get_name.(&1))
+
+path =
+  steps
+  |> Enum.with_index()
+  |> Enum.map(fn {city, index} ->
+    with next_city when not is_nil(next_city) <- Enum.at(steps, index + 1) do
+      {city, next_city}
+    end
+  end)
+  |> Enum.reject(&is_nil/1)
+```
+
+<!-- livebook:{"reevaluate_automatically":true} -->
+
+```elixir
+graph = "graph TD;"
+
+graph =
+  Enum.reduce(path, graph, fn {node, next_node}, graph ->
+    """
+    #{graph}
+    #{node} --> #{next_node}
+    """
+  end)
+
+Kino.Mermaid.new(graph)
+```
+
